@@ -44,7 +44,7 @@ git clone --depth=1 -b dev https://github.com/vernesong/OpenClash.git feeds/luci
 #git clone --depth=1 https://github.com/sirpdboy/luci-app-poweroffdevice.git package/custom/poweroffdevice
 #git clone --depth=1 https://github.com/isalikai/luci-app-owq-wol.git package/custom/owq-wol
 #git clone --depth=1 https://github.com/gdy666/luci-app-lucky.git package/custom/lucky
-git clone --depth=1 https://github.com/sbwml/luci-app-openlist2.git package/custom/openlist2
+#git clone --depth=1 https://github.com/sbwml/luci-app-openlist2.git package/custom/openlist2
 
 #git clone --depth=1 https://github.com/sirpdboy/luci-app-watchdog.git package/custom/watchdog
 #git clone --depth=1 https://github.com/sirpdboy/luci-app-taskplan.git package/custom/taskplan
@@ -75,10 +75,5 @@ git clone --depth=1 https://github.com/EasyTier/luci-app-easytier.git package/cu
 
 # change the default theme:
 sed -i 's/+luci-theme-bootstrap/+luci-theme-argon/g; s/default Bootstrap theme/Argon theme/g' feeds/luci/collections/luci-light/Makefile
-#sed -i 's/+luci-theme-bootstrap/+luci-theme-aurora/g; s/default Bootstrap theme/Aurora theme/g' feeds/luci/collections/luci-light/Makefile
-#修改默认主题
-#sed -i "s/luci-theme-bootstrap/luci-theme-$WRT_THEME/g" $(find ./feeds/luci/collections/ -type f -name "Makefile")
 
 ./scripts/feeds install -a
-#git clone --depth=1 https://github.com/sirpdboy/luci-theme-kucat.git package/custom/luci-theme-kucat
-#git clone --depth=1 https://github.com/sirpdboy/luci-app-kucat-config.git package/custom/luci-app-kucat-config
