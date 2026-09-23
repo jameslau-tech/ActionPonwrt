@@ -1,4 +1,4 @@
-name: 25.12-clx-s20p
+name: 25.12-040g-MD-ubi
 
 env:
   DEVICE_NAME: 25.12-clx-s20p
