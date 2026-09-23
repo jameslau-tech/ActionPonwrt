@@ -489,6 +489,7 @@ jobs:
         tag_name: ${{ steps.tag.outputs.release_tag }}
         body_path: release.txt
         files: |
+          ${{ env.FIRMWARE }}/*.itb    # ← 新增
           ${{ env.FIRMWARE }}/*.bin
           ${{ env.FIRMWARE }}/*.ipk
           ${{ env.FIRMWARE }}/*.img.gz
