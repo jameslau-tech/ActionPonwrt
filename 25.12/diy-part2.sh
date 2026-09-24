@@ -111,8 +111,8 @@ EOF
 
 # 修改默认 IP (192.168.30.1)
 sed -i 's/192.168.1.1/192.168.2.1/g' package/base-files/files/bin/config_generate
-sed -i 's/ImmortalWrt/JWRT/g' package/base-files/files/bin/config_generate
-#sed -i 's/hostname='.*'/hostname='JWRT'/g' package/base-files/files/bin/config_generate
+#sed -i 's/ImmortalWrt/JWRT/g' package/base-files/files/bin/config_generate
+sed -i 's/hostname='.*'/hostname='PonWrt'/g' package/base-files/files/bin/config_generate
 
 #CFG_FILE="./package/base-files/files/bin/config_generate"
 #修改默认IP地址
