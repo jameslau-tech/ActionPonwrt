@@ -1,17 +1,23 @@
 name: Build ImmortalWrt XG-040G-MD UBI
 
 on:
-  workflow_dispatch:
-  schedule:
+ # workflow_dispatch:
+ # schedule:
     # Every Sunday at 04:00 Beijing/Hong Kong time (Saturday 20:00 UTC)
-    - cron: "0 20 * * 6"
-  push:
-    branches: [main]
-    paths:
-      - ".github/workflows/25.12-imm-040G-MD-ubi.yml"
-      - "config/**"
-      - "scripts/**"
-
+ #   - cron: "0 20 * * 6"
+ # push:
+#    branches: [main]
+ #   paths:
+#      - ".github/workflows/25.12-imm-040G-MD-ubi.yml"
+#      - "config/**"
+#      - "scripts/**"
+  repository_dispatch:
+  workflow_dispatch:
+    inputs:
+      ssh:
+        description: 'SSH connection to Actions'
+        required: false
+        default: 'false'
 permissions:
   contents: write
 
