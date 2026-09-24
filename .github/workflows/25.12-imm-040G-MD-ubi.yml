@@ -1,0 +1,441 @@
+name: Build ImmortalWrt XG-040G-MD UBI
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Every Sunday at 04:00 Beijing/Hong Kong time (Saturday 20:00 UTC)
+    - cron: "0 20 * * 6"
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/25.12-imm-040G-MD-ubi.yml"
+      - "config/**"
+      - "scripts/**"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: immortalwrt-xg040g-md-ubi
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 360
+
+    env:
+      SOURCE_REPO: https://github.com/pbs05/ponwrt.git
+      SOURCE_BRANCH: master
+      DEVICE_PATTERN: nokia_xg-040g-md-ubi
+      TARGET_DIR: bin/targets/airoha/an7581
+      DEVICE_CONFIG: CONFIG_TARGET_airoha_an7581_DEVICE_nokia_xg-040g-md-ubi=y
+
+    steps:
+      - name: Checkout CI repository
+        uses: actions/checkout@v4
+
+      - name: Free runner disk space
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc || true
+          df -h
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential clang flex bison g++ gawk gcc-multilib \
+            gettext git libncurses5-dev libssl-dev python3 python3-setuptools \
+            rsync swig unzip zlib1g-dev file wget curl libelf-dev \
+            qemu-utils ccache xsltproc
+          sudo apt-get install -y --no-install-recommends \
+            asciidoc autoconf automake autopoint binutils bison build-essential \
+            bzip2 ccache clang cmake cpio curl device-tree-compiler flex gawk \
+            gettext git g++-multilib gcc-multilib gperf help2man intltool \
+            libelf-dev libglib2.0-dev libgmp3-dev libltdl-dev libmpc-dev \
+            libmpfr-dev libncurses-dev libpython3-dev libreadline-dev libssl-dev \
+            libtool libyaml-dev lld llvm ninja-build p7zip-full patch pkgconf \
+            python3 python3-docutils python3-pip python3-ply python3-pyelftools \
+            qemu-utils re2c rsync scons squashfs-tools subversion swig texinfo \
+            uglifyjs unzip wget xmlto xxd zlib1g-dev zstd       
+
+      - name: Clone ImmortalWrt source
+        run: |
+          # MedveFlasher's exact production snapshot is an operator-supplied
+          # binary and its source commit is not fetchable from the public
+          # ImmortalWrt repository. Build the public source normally, while
+          # retaining the exact MedveFlasher-compatible UBI profile below.
+          git clone --depth=1 --branch "$SOURCE_BRANCH" "$SOURCE_REPO" openwrt
+          cd openwrt
+          git log -1 --oneline
+
+      - name: Update and install feeds
+        working-directory: openwrt
+        run: |
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+
+      - name: Apply source customizations
+        working-directory: openwrt
+        run: |
+          bash ../scripts/customize.sh
+
+      - name: Apply and validate firmware configuration
+        working-directory: openwrt
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          cat ../config/xg040g-md-ubi.config ../config/general-packages.config > .config
+          make defconfig
+
+          echo "Selected target settings:"
+          grep -E '^CONFIG_TARGET_airoha|^CONFIG_TARGET_airoha_an7581' .config || true
+
+          # Brick-safety gate #1: the build must stay on the all-in-UBI profile.
+          if ! grep -Fxq "$DEVICE_CONFIG" .config; then
+            echo "ERROR: expected all-in-UBI device profile was not selected after make defconfig:"
+            echo "  $DEVICE_CONFIG"
+            echo
+            echo "Available/selected AN7581 device settings:"
+            grep -E '^CONFIG_TARGET_airoha_an7581_DEVICE_' .config || true
+            exit 1
+          fi
+
+          if grep -Fxq 'CONFIG_TARGET_airoha_an7581_DEVICE_nokia_xg-040g-md=y' .config; then
+            echo "ERROR: legacy non-UBI nokia_xg-040g-md profile is selected. Refusing to build/release."
+            exit 1
+          fi
+
+          if ! grep -Fxq 'CONFIG_TARGET_ROOTFS_SQUASHFS=y' .config; then
+            echo "ERROR: squashfs rootfs is not enabled; expected the UBI squashfs sysupgrade image."
+            exit 1
+          fi
+
+          echo "Confirmed device profile: $DEVICE_PATTERN (all-in-UBI)"
+
+          # These are intentional user-facing/runtime requirements. If one of these
+          # disappears, failing is preferable to silently publishing a degraded image.
+          critical_configs=(
+            CONFIG_PACKAGE_luci=y
+            CONFIG_PACKAGE_luci-light=y
+            CONFIG_PACKAGE_luci-mod-admin-full=y
+            CONFIG_PACKAGE_luci-mod-network=y
+            CONFIG_PACKAGE_luci-mod-system=y
+            CONFIG_PACKAGE_luci-mod-status=y
+            CONFIG_PACKAGE_luci-app-firewall=y
+            CONFIG_PACKAGE_luci-app-package-manager=y
+            CONFIG_PACKAGE_luci-ssl=y
+            CONFIG_PACKAGE_luci-proto-ipv6=y
+            CONFIG_PACKAGE_luci-proto-ppp=y
+            CONFIG_PACKAGE_luci-app-attendedsysupgrade=y
+            CONFIG_PACKAGE_kmod-tun=y
+            CONFIG_PACKAGE_luci-app-openclash=y
+            CONFIG_PACKAGE_luci-app-lucky=y
+            CONFIG_PACKAGE_luci-theme-footstrap=y
+            CONFIG_LUCI_LANG_zh_Hans=y
+            CONFIG_PACKAGE_luci-i18n-base-zh-cn=y
+            CONFIG_PACKAGE_luci-i18n-lucky-zh-cn=y
+            CONFIG_PACKAGE_luci-i18n-upnp-zh-cn=y
+            CONFIG_PACKAGE_uhttpd=y
+            CONFIG_PACKAGE_uhttpd-mod-ubus=y
+            CONFIG_PACKAGE_uhttpd-mod-ucode=y
+            CONFIG_PACKAGE_luci-app-gecoosac=y
+            CONFIG_PACKAGE_luci-app-samba4=y
+            CONFIG_PACKAGE_luci-app-wolultra=y
+            CONFIG_PACKAGE_luci-app-airoha-npu=y
+            CONFIG_PACKAGE_airoha-en7581-npu-firmware=y
+            CONFIG_PACKAGE_fitblk=y
+            CONFIG_PACKAGE_dnsmasq-full=y
+            CONFIG_PACKAGE_bash=y
+            CONFIG_PACKAGE_curl=y
+            CONFIG_PACKAGE_ca-bundle=y
+            CONFIG_PACKAGE_ip-full=y
+            CONFIG_PACKAGE_ruby=y
+            CONFIG_PACKAGE_ruby-yaml=y
+            CONFIG_PACKAGE_kmod-tun=y
+            CONFIG_PACKAGE_unzip=y
+          )
+
+          missing_critical=0
+          for cfg in "${critical_configs[@]}"; do
+            if ! grep -Fxq "$cfg" .config; then
+              echo "MISSING critical config after make defconfig: $cfg"
+              missing_critical=1
+            fi
+          done
+
+          if [ "$missing_critical" -ne 0 ]; then
+            echo "ERROR: critical package/config set is incomplete."
+            exit 1
+          fi
+
+          # GENERAL.txt is a convenience baseline copied from another build tree.
+          # ImmortalWrt master can rename/remove non-critical Kconfig symbols over
+          # time. Record those drops, but do not confuse them with a boot-safety
+          # failure. The final rootfs manifest is checked again after compilation.
+          : > ../general-packages-dropped.txt
+          while IFS= read -r line; do
+            case "$line" in
+              CONFIG_PACKAGE_*=y)
+                if ! grep -Fxq "$line" .config; then
+                  echo "$line" >> ../general-packages-dropped.txt
+                fi
+                ;;
+            esac
+          done < ../config/general-packages.config
+
+          if [ -s ../general-packages-dropped.txt ]; then
+            echo "WARNING: non-critical GENERAL symbols dropped/renamed by current ImmortalWrt:"
+            cat ../general-packages-dropped.txt
+          else
+            echo "All requested GENERAL package symbols survived make defconfig."
+          fi
+
+      - name: Download sources
+        working-directory: openwrt
+        run: |
+          make download -j"$(nproc)"
+          find dl -size -1024c -delete || true
+
+      - name: Build firmware
+        working-directory: openwrt
+        run: |
+          make -j"$(nproc)" V=s
+
+      - name: Validate and collect firmware images
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p output
+
+          mapfile -t SYSUPGRADES < <(find "openwrt/$TARGET_DIR" -maxdepth 1 -type f \
+            -name "*${DEVICE_PATTERN}-squashfs-sysupgrade.itb" | sort)
+          mapfile -t RECOVERIES < <(find "openwrt/$TARGET_DIR" -maxdepth 1 -type f \
+            -name "*${DEVICE_PATTERN}-initramfs-recovery.itb" | sort)
+          mapfile -t MANIFESTS < <(find "openwrt/$TARGET_DIR" -maxdepth 1 -type f \
+            -name "*${DEVICE_PATTERN}.manifest" | sort)
+
+          if [ "${#SYSUPGRADES[@]}" -ne 1 ]; then
+            echo "ERROR: expected exactly one XG-040G-MD UBI squashfs sysupgrade.itb, found ${#SYSUPGRADES[@]}."
+            find "openwrt/$TARGET_DIR" -maxdepth 1 -type f -printf '%f\n' | sort
+            exit 1
+          fi
+
+          if [ "${#RECOVERIES[@]}" -ne 1 ]; then
+            echo "ERROR: expected exactly one XG-040G-MD UBI initramfs recovery.itb, found ${#RECOVERIES[@]}."
+            exit 1
+          fi
+
+          if [ "${#MANIFESTS[@]}" -ne 1 ]; then
+            echo "ERROR: expected exactly one XG-040G-MD UBI manifest, found ${#MANIFESTS[@]}."
+            exit 1
+          fi
+
+          SYSUPGRADE="${SYSUPGRADES[0]}"
+          RECOVERY="${RECOVERIES[0]}"
+          MANIFEST="${MANIFESTS[0]}"
+
+          # Brick-safety gate #2: inspect the metadata embedded in the actual image,
+          # not only its filename. A legacy-layout/wrong-target image must never be published.
+          FWTOOL="openwrt/staging_dir/host/bin/fwtool"
+          if [ ! -x "$FWTOOL" ]; then
+            echo "ERROR: host fwtool not found; cannot verify image metadata safely."
+            exit 1
+          fi
+
+          META="output/sysupgrade-metadata.json"
+          "$FWTOOL" -q -i "$META" "$SYSUPGRADE"
+
+          python3 - "$META" <<'PY'
+          import json
+          import sys
+
+          path = sys.argv[1]
+          with open(path, "r", encoding="utf-8") as f:
+              meta = json.load(f)
+
+          expected_device = "nokia,xg-040g-md-ubi"
+          expected_board = "nokia_xg-040g-md-ubi"
+          expected_target = "airoha/an7581"
+
+          devices = set(meta.get("supported_devices") or [])
+          version = meta.get("version") or {}
+          board = version.get("board")
+          target = version.get("target")
+
+          errors = []
+          if expected_device not in devices:
+              errors.append(f"supported_devices does not contain {expected_device!r}: {sorted(devices)!r}")
+          if board != expected_board:
+              errors.append(f"metadata board is {board!r}, expected {expected_board!r}")
+          if target != expected_target:
+              errors.append(f"metadata target is {target!r}, expected {expected_target!r}")
+
+          if errors:
+              print("ERROR: sysupgrade image metadata failed UBI safety validation:")
+              for error in errors:
+                  print(f"  - {error}")
+              raise SystemExit(1)
+
+          print(f"Image metadata validated: board={board}, target={target}, supported_device={expected_device}")
+          PY
+
+          # Brick-safety gate #3: profiles.json must describe the same UBI profile and .itb image.
+          PROFILES="openwrt/$TARGET_DIR/profiles.json"
+          if [ ! -f "$PROFILES" ]; then
+            echo "ERROR: profiles.json missing; cannot cross-check produced profile."
+            exit 1
+          fi
+
+          python3 - "$PROFILES" <<'PY'
+          import json
+          import sys
+
+          with open(sys.argv[1], "r", encoding="utf-8") as f:
+              data = json.load(f)
+
+          profile = (data.get("profiles") or {}).get("nokia_xg-040g-md-ubi")
+          if not profile:
+              print("ERROR: profiles.json does not contain nokia_xg-040g-md-ubi")
+              raise SystemExit(1)
+
+          image_names = [item.get("name", "") for item in profile.get("images", [])]
+          if not any(name.endswith("-squashfs-sysupgrade.itb") for name in image_names):
+              print("ERROR: UBI profile does not advertise a squashfs sysupgrade.itb")
+              print("Images:", image_names)
+              raise SystemExit(1)
+
+          print("profiles.json UBI profile validated.")
+          PY
+
+          # Final package check against the actual compiled rootfs manifest. This is
+          # stronger than checking Kconfig alone and still avoids hard-failing on old,
+          # non-critical GENERAL symbols that master may rename.
+          awk -F ' - ' '{print $1}' "$MANIFEST" > output/package-names.txt
+          critical_packages=(
+            luci
+            luci-light
+            luci-mod-admin-full
+            luci-mod-network
+            luci-mod-system
+            luci-mod-status
+            luci-app-firewall
+            luci-app-package-manager
+            luci-ssl
+            luci-proto-ipv6
+            luci-proto-ppp
+            luci-app-attendedsysupgrade
+            kmod-tun
+            luci-app-openclash
+            luci-app-lucky
+            luci-theme-footstrap
+            luci-i18n-base-zh-cn
+            luci-i18n-lucky-zh-cn
+            luci-i18n-upnp-zh-cn
+            uhttpd
+            uhttpd-mod-ubus
+            uhttpd-mod-ucode
+            luci-app-gecoosac
+            luci-app-samba4
+            luci-app-wolultra
+            luci-app-airoha-npu
+            airoha-en7581-npu-firmware
+            fitblk
+            dnsmasq-full
+            bash
+            curl
+            ca-bundle
+            ip-full
+            ruby
+            ruby-yaml
+            kmod-tun
+            unzip
+          )
+
+          missing_manifest=0
+          for pkg in "${critical_packages[@]}"; do
+            if ! grep -Fxq "$pkg" output/package-names.txt; then
+              echo "MISSING from final rootfs manifest: $pkg"
+              missing_manifest=1
+            fi
+          done
+
+          if [ "$missing_manifest" -ne 0 ]; then
+            echo "ERROR: final firmware is missing one or more critical runtime packages."
+            exit 1
+          fi
+
+          cp -v "$SYSUPGRADE" output/
+          cp -v "$RECOVERY" output/
+          cp -v "$MANIFEST" output/
+          cp -v "$PROFILES" output/profiles.json
+          cp -v openwrt/.config output/build.config
+          if [ -s general-packages-dropped.txt ]; then
+            cp -v general-packages-dropped.txt output/
+          fi
+
+          (cd output && sha256sum *.itb > SHA256SUMS)
+          ls -lh output
+
+      - name: Prepare release metadata
+        id: release
+        shell: bash
+        run: |
+          BUILD_DATE="$(TZ=Asia/Shanghai date +'%Y.%m.%d-%H%M')"
+          SOURCE_SHA="$(git -C openwrt rev-parse --short=12 HEAD)"
+          TAG="immortalwrt-${BUILD_DATE}-r${GITHUB_RUN_NUMBER}"
+          RELEASE_NAME="ImmortalWrt XG-040G-MD UBI ${BUILD_DATE}"
+
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "name=$RELEASE_NAME" >> "$GITHUB_OUTPUT"
+          echo "source_sha=$SOURCE_SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Upload Actions artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ImmortalWrt-XG-040G-MD-UBI
+          path: output/
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          RELEASE_NAME: ${{ steps.release.outputs.name }}
+          SOURCE_SHA: ${{ steps.release.outputs.source_sha }}
+        run: |
+          cat > release-notes.md <<EOF
+          ## Nokia XG-040G-MD (all-in-UBI)
+
+          Automated ImmortalWrt build for Nokia XG-040G-MD / Airoha AN7581.
+
+          - Device profile: \`nokia_xg-040g-md-ubi\`
+          - MedveFlasher compatibility: all-in-UBI profile and normal sysupgrade path
+          - ImmortalWrt source commit: \`${SOURCE_SHA}\`
+          - GitHub Actions run: \`${GITHUB_RUN_NUMBER}\`
+          - Runtime package baseline: Bingoguo GENERAL package set
+          - Critical packages: Footstrap, Simplified Chinese LuCI, OpenClash, Lucky, UPnP, GecoosAC, WOL Ultra, Airoha NPU LuCI
+          - Safety gates: exact UBI Kconfig profile + sysupgrade metadata + profiles.json + final rootfs manifest
+
+          ### Files
+
+          - \`*-squashfs-sysupgrade.itb\` — normal firmware upgrade after MedveFlasher/all-in-UBI migration
+          - \`*-initramfs-recovery.itb\` — RAM/TFTP recovery image
+          - \`*.manifest\` — actual packages included in the rootfs
+          - \`sysupgrade-metadata.json\` — metadata extracted from the released sysupgrade image
+          - \`profiles.json\` — build profile/image metadata
+          - \`build.config\` — final Kconfig after \`make defconfig\`
+          - \`general-packages-dropped.txt\` — optional non-critical GENERAL symbols removed/renamed by current master
+          - \`SHA256SUMS\` — checksums
+
+          > Do not flash these images directly onto stock Nokia firmware or the legacy non-UBI/tcboot layout.
+          EOF
+
+          gh release create "$RELEASE_TAG" output/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "$RELEASE_NAME" \
+            --notes-file release-notes.md \
+            --latest
