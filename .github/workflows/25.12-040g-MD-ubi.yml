@@ -375,6 +375,38 @@ jobs:
         make download -j8 || make download -j1 V=s
         find dl -size -1024c -exec ls -l {} \;
         find dl -size -1024c -exec rm -f {} \;
+    - name: Verify AN7581 hardware configuration
+      run: |
+        cd openwrt
+
+        echo "================ FINAL CONFIG ================"
+        grep -E \
+        'CONFIG_(PACKAGE_(block-mount|kmod-usb|kmod-phy-airoha-en8811h|airoha-en8811h-firmware)|TARGET_.*nokia_xg-040g-md-ubi)' \
+        .config || true
+
+        echo
+        echo "================ DTS FILES ================"
+        find target/linux/airoha -type f \
+        \( -name '*.dts' -o -name '*.dtsi' \) | sort
+
+        echo
+        echo "================ USB / EN8811 / GDM4 ================"
+        grep -R -nE \
+        'usb0|usb1|gdm4|en8811|2500base-x|reg_usb_5v' \
+        target/linux/airoha/dts || true
+
+        echo
+        echo "================ DEVICE PROFILE ================"
+        grep -R -n \
+        'nokia_xg-040g-md-ubi' \
+        target/linux/airoha || true
+
+        echo
+        echo "================ MANIFEST ================"
+        grep -R -E \
+        'kmod-usb|block-mount|en8811' \
+        bin/targets/airoha/an7581/*/*.manifest 2>/dev/null || true
+   
     # =========================================================
     # 8. 编译固件
     # =========================================================
